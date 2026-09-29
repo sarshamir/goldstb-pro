@@ -27,11 +27,6 @@ jobs:
           packages: platform-tools
       - name: Install Android platform
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
-      - name: Generate local playback fixture
-        run: |
-          mkdir -p FormulaTV/app/src/androidTest/assets
-          ffmpeg -f lavfi -i color=c=0x6D36C4:s=320x180:r=24 -f lavfi -i sine=frequency=440:sample_rate=44100 -t 12 -c:v libx264 -pix_fmt yuv420p -c:a aac -movflags +faststart FormulaTV/app/src/androidTest/assets/test-video.mp4
-          ffmpeg -f lavfi -i color=c=0x174FA0:s=320x180:r=24 -f lavfi -i sine=frequency=880:sample_rate=44100 -t 12 -c:v libx264 -pix_fmt yuv420p -c:a aac -movflags +faststart FormulaTV/app/src/androidTest/assets/test-video2.mp4
       - name: Build and test Formula TV
         working-directory: FormulaTV
         run: gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug

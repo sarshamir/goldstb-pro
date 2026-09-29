@@ -459,7 +459,7 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
     val backFocus = remember { FocusRequester() }
     LaunchedEffect(tools) { if (!tools && request.item.kind == MediaKind.LIVE) rootFocus.requestFocus() else backFocus.requestFocus() }
     Box(Modifier.fillMaxSize().background(Color.Black).focusRequester(rootFocus).focusable().onPreviewKeyEvent { event ->
-        if (event.type == KeyEventType.KeyUp && (event.key == Key.DirectionCenter || event.key == Key.Enter) && request.item.kind == MediaKind.LIVE) {
+        if (!tools && event.type == KeyEventType.KeyUp && (event.key == Key.DirectionCenter || event.key == Key.Enter) && request.item.kind == MediaKind.LIVE) {
             tools = !tools; true
         } else if (!tools && request.item.kind == MediaKind.LIVE && event.type == KeyEventType.KeyUp && (event.key == Key.DirectionUp || event.key == Key.DirectionDown)) {
             vm.zap(if (event.key == Key.DirectionDown) 1 else -1); true
@@ -471,14 +471,14 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
             IconAction(Icons.Default.ArrowBack, "Back", { vm.fullscreen(false) }, Modifier.focusRequester(backFocus))
             Text(request.item.name, color = Color.White, fontSize = 18.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             IconAction(Icons.Default.StarBorder, "Favorite", { vm.favorite(request.item) })
-            IconAction(Icons.Default.Refresh, "Retry stream", { vm.open(request.item) })
+            IconAction(Icons.Default.Refresh, "Retry stream", { vm.retryPlayback() })
             if (Build.VERSION.SDK_INT >= 26) IconAction(Icons.Default.PictureInPictureAlt, "Picture in picture", activity::pictureInPicture)
             IconAction(Icons.Default.VisibilityOff, "Hide tools", { tools = false })
         } else IconAction(Icons.Default.MoreHoriz, "Show tools", { tools = true }, Modifier.align(Alignment.TopEnd).padding(12.dp))
         if (s.resolving) CircularProgressIndicator(color = Purple, modifier = Modifier.align(Alignment.Center))
         if (error != null) Column(Modifier.align(Alignment.Center).clip(Shape).background(Panel).padding(20.dp)) {
             Text(error, color = Color.White); Spacer(Modifier.height(14.dp))
-            Action("Retry", Icons.Default.Refresh, { vm.open(request.item) })
+            Action("Retry", Icons.Default.Refresh, { vm.retryPlayback() })
         }
     }
 }

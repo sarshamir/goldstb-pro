@@ -85,7 +85,9 @@ class PortalClient {
         val earliest = now - channel.catchupDays.coerceAtLeast(1) * 86_400L
         for (query in queries) {
             val json = runCatching { call(query) }.getOrNull() ?: continue
-            val array = contentArray(json) ?: payloadObject(json)?.optJSONArray("data") ?: continue
+            val payload = payloadObject(json)
+            val array = contentArray(json) ?: payload?.optJSONArray(channel.id)
+                ?: payload?.optJSONObject("data")?.optJSONArray(channel.id) ?: continue
             val programs = buildList {
                 for (index in 0 until array.length()) {
                     val item = array.optJSONObject(index) ?: continue
@@ -96,7 +98,7 @@ class PortalClient {
                         firstString(item, "name", "title", "descr").ifBlank { "Recorded programme" }, start, end, channel
                     ))
                 }
-            }.distinctBy { it.start }.sortedByDescending { it.start }
+            }.distinctBy { it.start }.sortedBy { it.start }
             if (programs.isNotEmpty()) return@withContext programs
         }
         emptyList()

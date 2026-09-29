@@ -248,6 +248,7 @@ class FormulaViewModel(app: Application) : AndroidViewModel(app) {
     fun savePin(pin: String) { prefs.edit().putString("parental_pin", pin).apply(); unlocked = false }
     fun lockAgain() { unlocked = false; prefs.edit().remove("provider_pin").apply() }
     fun cancelPin() { state.value = state.value.copy(lockedItem = null, pinError = null) }
+    fun retryPlayback() { state.value.playback?.item?.let(::play) }
     fun clearError() { state.value = state.value.copy(error = null) }
     fun fullscreen(value: Boolean) { state.value = state.value.copy(fullscreen = value) }
     fun backEpisodes() { state.value = state.value.copy(episodes = null, query = "") }
