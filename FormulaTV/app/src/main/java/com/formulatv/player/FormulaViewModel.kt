@@ -184,7 +184,7 @@ class FormulaViewModel(app: Application) : AndroidViewModel(app) {
                     val history = (listOf(item) + state.value.history).distinctBy(::itemKey).take(20)
                     runCatching { store.saveItems("history:${state.value.active?.id}", history) }
                     state.value = state.value.copy(history = history, playback = PlayRequest(item, source, request), resolving = false,
-                        fullscreen = state.value.fullscreen || item.kind != MediaKind.LIVE)
+                        fullscreen = state.value.fullscreen || item.kind != MediaKind.LIVE || item.catchupStart > 0 || state.value.tab != Tab.LIVE)
                     if (item.kind == MediaKind.LIVE) loadGuide(item)
                 }
             } catch (error: Exception) {

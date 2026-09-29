@@ -35,8 +35,10 @@ class PortalClientTest {
         server.start()
         try {
             val client = PortalClient()
-            val content = client.connect(PortalConfig(server.url("/").toString(), "00:1A:79:12:34:56"))
+            val content = client.connect(PortalConfig(server.url("/server/load.php").toString(), "00:1A:79:12:34:56"))
             assertEquals("News", content.liveCategories.single().title)
+            assertEquals("Movies", content.vodCategories.single().title)
+            assertEquals("2", content.seriesCategories.single().id)
             val channel = content.liveChannels.single()
             assertEquals(3, channel.catchupDays)
             assertEquals("Current programme", client.loadGuide(channel).single().title)

@@ -92,6 +92,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable private fun FormulaApp(activity: MainActivity, vm: FormulaViewModel = viewModel()) {
     val s = vm.state.value
     val config = LocalConfiguration.current
@@ -411,6 +412,7 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
         Spacer(Modifier.height(6.dp)); Text(subtitle, color = Muted, fontSize = 12.sp)
     }
 }
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable private fun VideoSurface(player: ExoPlayer, controls: Boolean, modifier: Modifier) {
     AndroidView(factory = { context -> PlayerView(context).apply {
         this.player = player; useController = controls; resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
@@ -459,13 +461,13 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
     val backFocus = remember { FocusRequester() }
     LaunchedEffect(tools) { if (!tools && request.item.kind == MediaKind.LIVE) rootFocus.requestFocus() else backFocus.requestFocus() }
     Box(Modifier.fillMaxSize().background(Color.Black).focusRequester(rootFocus).focusable().onPreviewKeyEvent { event ->
-        if (!tools && event.type == KeyEventType.KeyUp && (event.key == Key.DirectionCenter || event.key == Key.Enter) && request.item.kind == MediaKind.LIVE) {
+        if (!tools && event.type == KeyEventType.KeyUp && (event.key == Key.DirectionCenter || event.key == Key.Enter) && request.item.kind == MediaKind.LIVE && request.item.catchupStart == 0L) {
             tools = !tools; true
-        } else if (!tools && request.item.kind == MediaKind.LIVE && event.type == KeyEventType.KeyUp && (event.key == Key.DirectionUp || event.key == Key.DirectionDown)) {
+        } else if (!tools && request.item.kind == MediaKind.LIVE && request.item.catchupStart == 0L && event.type == KeyEventType.KeyUp && (event.key == Key.DirectionUp || event.key == Key.DirectionDown)) {
             vm.zap(if (event.key == Key.DirectionDown) 1 else -1); true
         } else false
     }) {
-        VideoSurface(player, request.item.kind != MediaKind.LIVE, Modifier.fillMaxSize())
+        VideoSurface(player, request.item.kind != MediaKind.LIVE || request.item.catchupStart > 0, Modifier.fillMaxSize())
         if (tools) Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .8f), Color.Transparent))).padding(16.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             IconAction(Icons.Default.ArrowBack, "Back", { vm.fullscreen(false) }, Modifier.focusRequester(backFocus))

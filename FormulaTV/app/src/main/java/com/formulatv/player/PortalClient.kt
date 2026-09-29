@@ -49,6 +49,7 @@ class PortalClient {
     private var token = ""
     private lateinit var config: PortalConfig
     private var endpointUrl = ""
+    private var nativeSeries = false
     private val itemCache = ConcurrentHashMap<String, List<Channel>>()
     private val episodeCache = ConcurrentHashMap<String, List<Channel>>()
     private val lockedCategoryIds = ConcurrentHashMap.newKeySet<String>()
@@ -86,8 +87,8 @@ class PortalClient {
         for (query in queries) {
             val json = runCatching { call(query) }.getOrNull() ?: continue
             val payload = payloadObject(json)
-            val array = contentArray(json) ?: payload?.optJSONArray(channel.id)
-                ?: payload?.optJSONObject("data")?.optJSONArray(channel.id) ?: continue
+            val array = payload?.optJSONArray(channel.id) ?: payload?.optJSONObject("data")?.optJSONArray(channel.id)
+                ?: contentArray(json) ?: continue
             val programs = buildList {
                 for (index in 0 until array.length()) {
                     val item = array.optJSONObject(index) ?: continue
@@ -147,11 +148,12 @@ class PortalClient {
         val liveCategories = parseStalkerCategories(results[0], MediaKind.LIVE)
         val vodCategories = parseStalkerCategories(results[2], MediaKind.VOD)
         val directSeriesCategories = parseStalkerCategories(results[3], MediaKind.SERIES)
+        nativeSeries = directSeriesCategories.isNotEmpty()
         val seriesCategories = directSeriesCategories.ifEmpty {
             vodCategories.filter { category -> SERIES_CATEGORY_WORDS.any { category.title.contains(it, true) } }
                 .map { it.copy(kind = MediaKind.SERIES) }
         }
-        val movieCategories = if (seriesCategories.isEmpty()) vodCategories else vodCategories.filterNot { vod -> seriesCategories.any { it.id == vod.id } }
+        val movieCategories = if (nativeSeries || seriesCategories.isEmpty()) vodCategories else vodCategories.filterNot { vod -> seriesCategories.any { it.id == vod.id } }
         progress(1f, "Ready")
         return PortalContent(
             liveCategories,
@@ -225,7 +227,7 @@ class PortalClient {
 
     private fun orderedListPage(kind: MediaKind, category: String, page: Int): JSONObject? {
         val encodedCategory = encode(category)
-        val types = if (kind == MediaKind.SERIES) listOf("vod", "series") else listOf("vod")
+        val types = if (kind == MediaKind.SERIES) (if (nativeSeries) listOf("series", "vod") else listOf("vod", "series")) else listOf("vod")
         val categoryKeys = listOf("category", "category_id", "genre")
         for (type in types) for (key in categoryKeys) {
             val query = "type=$type&action=get_ordered_list&$key=$encodedCategory&p=$page&sortby=added&not_ended=0&fav=0&JsHttpRequest=1-xml"
@@ -546,6 +548,13 @@ class PortalClient {
 
     private suspend fun discoverEndpointAndHandshake(): JSONObject = coroutineScope {
         val entered = config.baseUrl.trimEnd('/')
+        if (entered.endsWith(".php", true)) {
+            val direct = runCatching { requestResult(entered, "type=stb&action=handshake&token=&JsHttpRequest=1-xml", discoveryHttp) }.getOrNull()
+            if (direct != null && payloadObject(direct.first)?.optString("token").orEmpty().isNotBlank()) {
+                endpointUrl = direct.second; config = config.copy(baseUrl = portalBase(direct.second))
+                return@coroutineScope direct.first
+            }
+        }
         val withoutPortalPath = entered.replace(Regex("(?i)/(c|server/load\\.php|stalker_portal/server/load\\.php|stalker_portal/portal\\.php|portal\\.php)$"), "")
         val initialRoots = buildList {
             add(entered); add(withoutPortalPath)

@@ -27,6 +27,11 @@ jobs:
           packages: platform-tools
       - name: Install Android platform
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Keep a stable testing signature
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: formula-tv-testing-debug-key-v1
       - name: Build and test Formula TV
         working-directory: FormulaTV
         run: gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug
