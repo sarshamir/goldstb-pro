@@ -96,6 +96,7 @@ class MainActivity : ComponentActivity() {
     val wide = config.screenWidthDp >= 700 || tv
     val player = remember { ExoPlayer.Builder(activity).build() }
     var playbackError by remember { mutableStateOf<String?>(null) }
+    var playbackStatus by remember { mutableStateOf("Ready") }
     var sourceDialog by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<SourceConfig?>(null) }
     var searchDialog by remember { mutableStateOf(false) }
@@ -104,6 +105,10 @@ class MainActivity : ComponentActivity() {
     val lifecycle = LocalLifecycleOwner.current
     DisposableEffect(player) {
         val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                playbackStatus = when (state) { Player.STATE_BUFFERING -> "Buffering…"; Player.STATE_READY -> if (player.playWhenReady) "Playing" else "Paused"; Player.STATE_ENDED -> "Finished"; else -> "Ready" }
+            }
+            override fun onIsPlayingChanged(isPlaying: Boolean) { if (isPlaying) playbackStatus = "Playing" }
             override fun onPlayerError(error: PlaybackException) {
                 playbackError = "This stream could not play. Retry or choose another channel."
             }
@@ -165,7 +170,7 @@ class MainActivity : ComponentActivity() {
                     when (s.tab) {
                         Tab.HOME -> HomeScreen(s, vm)
                         Tab.SETTINGS -> SettingsScreen(s, vm, onSources = { sourceDialog = true }, onEdit = { editing = s.active })
-                        else -> BrowseScreen(s, vm, wide, player, playbackError, onGuide = { guideDialog = true })
+                        else -> BrowseScreen(s, vm, wide, player, playbackError, playbackStatus, onGuide = { guideDialog = true })
                     }
                 }
             }
@@ -184,6 +189,7 @@ class MainActivity : ComponentActivity() {
     editing?.let { source -> SourceEditor(source, tv, onClose = { editing = null }, onSave = { if (vm.saveSource(it)) editing = null }, error = s.error) }
     if (searchDialog) SearchDialog(s.query, onClose = { searchDialog = false }, onSearch = { if (s.tab == Tab.HOME) vm.select(Tab.LIVE); vm.query(it); searchDialog = false })
     if (guideDialog) GuideDialog(s, onClose = { guideDialog = false }, onPlay = { guideDialog = false; vm.catchup(it) })
+    s.details?.let { DetailDialog(it, s.detailsLoading, FormulaViewModel.itemKey(it) in s.favorites, vm::closeDetails, vm::watchDetails, { vm.favorite(it) }) }
     if (s.lockedItem != null) PinDialog(s.pinError, onClose = vm::cancelPin, onSave = vm::unlock)
 }
 
@@ -301,7 +307,7 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
 }
 @Composable private fun SectionTitle(title: String) { Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
 
-@Composable private fun BrowseScreen(s: FormulaState, vm: FormulaViewModel, wide: Boolean, player: ExoPlayer, error: String?, onGuide: () -> Unit) {
+@Composable private fun BrowseScreen(s: FormulaState, vm: FormulaViewModel, wide: Boolean, player: ExoPlayer, error: String?, status: String, onGuide: () -> Unit) {
     val visible = vm.visibleItems()
     var groups by remember(s.tab) { mutableStateOf(false) }
     var groupMenu by remember { mutableStateOf<Category?>(null) }
@@ -320,12 +326,12 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
                 ChannelList(visible, s, vm, Modifier.fillMaxSize())
             }
             Column(Modifier.weight(1.35f).fillMaxHeight()) {
-                Preview(player, s, error, vm, onGuide)
+                Preview(player, s, error, status, vm, onGuide)
                 Spacer(Modifier.height(18.dp))
                 GuideSummary(s, onGuide)
             }
         } else Column(Modifier.fillMaxSize()) {
-            Preview(player, s, error, vm, onGuide)
+            Preview(player, s, error, status, vm, onGuide)
             Spacer(Modifier.height(12.dp))
             ChannelList(visible, s, vm, Modifier.weight(1f))
         }
@@ -359,7 +365,7 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
     if (items.isEmpty()) { Box(modifier) { EmptyState("No channels", "Choose another group or clear your search.") }; return }
     LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(7.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
         items(items, key = FormulaViewModel::itemKey) { item ->
-            FocusTile({ if (s.playback?.item?.id == item.id && s.playback.item.kind == item.kind) vm.fullscreen(true) else vm.open(item) },
+            FocusTile({ if (s.playback?.let { it.item.id == item.id && it.item.kind == item.kind } == true) vm.fullscreen(true) else vm.open(item) },
                 Modifier.fillMaxWidth(), s.selected?.id == item.id, onLongClick = { vm.favorite(item) }) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     AsyncImage(model = item.poster, contentDescription = null, modifier = Modifier.size(35.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Fit)
@@ -405,7 +411,7 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
     } }, modifier = modifier, update = { view -> view.player = player; view.useController = controls },
         onRelease = { view -> view.player = null })
 }
-@Composable private fun Preview(player: ExoPlayer, s: FormulaState, error: String?, vm: FormulaViewModel, onGuide: () -> Unit) {
+@Composable private fun Preview(player: ExoPlayer, s: FormulaState, error: String?, status: String, vm: FormulaViewModel, onGuide: () -> Unit) {
     Column(Modifier.fillMaxWidth().clip(Shape).background(Panel)) {
         Box(Modifier.fillMaxWidth().aspectRatio(16f/9f).background(Color.Black), contentAlignment = Alignment.Center) {
             if (s.playback != null) VideoSurface(player, false, Modifier.fillMaxSize())
@@ -419,7 +425,7 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(s.playback?.item?.name ?: "Live preview", color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("OK on playing channel opens full screen", color = Muted, fontSize = 10.sp)
+                Text(if (s.resolving) "Connecting…" else if (s.playback != null) status else "Select a channel to start", color = Muted, fontSize = 10.sp)
             }
             if (s.playback != null) {
                 IconAction(Icons.Default.Fullscreen, "Full screen", { vm.fullscreen(true) })
@@ -593,4 +599,26 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
             }
         }
     }, confirmButton = { TextButton(onClick = onClose) { Text("Close") } })
+}
+
+@Composable private fun DetailDialog(item: Channel, loading: Boolean, favorite: Boolean, onClose: () -> Unit, onWatch: () -> Unit, onFavorite: () -> Unit) {
+    AlertDialog(onDismissRequest = onClose, title = { Text(item.name) }, text = {
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                AsyncImage(model = item.poster, contentDescription = item.name, contentScale = ContentScale.Crop,
+                    modifier = Modifier.width(110.dp).height(155.dp).clip(RoundedCornerShape(12.dp)).background(PanelLight))
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(if (item.isContainer) "TV SERIES" else "MOVIE", color = Purple, fontSize = 11.sp)
+                    if (item.rating.isNotBlank()) Text("★ ${item.rating}", color = Color(0xFFE3C77D), fontSize = 14.sp)
+                    if (item.year.isNotBlank()) Text(item.year, color = Muted, fontSize = 12.sp)
+                    if (item.duration.isNotBlank()) Text(item.duration, color = Muted, fontSize = 12.sp)
+                    if (item.genre.isNotBlank()) Text(item.genre, color = Muted, fontSize = 12.sp)
+                }
+            }
+            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Purple)
+            if (item.summary.isNotBlank()) Text(item.summary, color = Color.White, fontSize = 13.sp)
+            Action(if (favorite) "Remove favorite" else "Add favorite", Icons.Default.Star, onFavorite, Modifier.fillMaxWidth())
+        }
+    }, confirmButton = { TextButton(onClick = onWatch) { Text(if (item.isContainer) "View episodes" else "Play movie") } },
+        dismissButton = { TextButton(onClick = onClose) { Text("Close") } })
 }

@@ -252,7 +252,9 @@ class PortalClient {
         val extension = firstString(item, "container_format", "extension", "format")
         return Channel(id, name, cmd, serverCategory, if (isSeries) MediaKind.SERIES else MediaKind.VOD, poster,
             refs.firstOrNull() ?: if (isSeries) "1" else "0", extension, refs, seasonRefs, isSeries,
-            isLocked(item) || "${MediaKind.VOD}:$serverCategory" in lockedCategoryIds)
+            isLocked(item) || "${MediaKind.VOD}:$serverCategory" in lockedCategoryIds,
+            summary = firstString(item, "description", "plot", "story"), rating = firstString(item, "rating_imdb", "rating"),
+            year = firstString(item, "year", "released"), duration = firstString(item, "time", "duration"), genre = firstString(item, "genre"))
     }
 
     private fun loadStalkerEpisodes(series: Channel): List<Channel> {

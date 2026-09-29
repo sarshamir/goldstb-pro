@@ -24,6 +24,7 @@ data class FormulaState(
     val playback: PlayRequest? = null, val resolving: Boolean = false, val guide: List<GuideProgram>? = null,
     val favoriteItems: List<Channel> = emptyList(), val history: List<Channel> = emptyList(),
     val favorites: Set<String> = emptySet(), val hidden: Set<String> = emptySet(), val pinned: Set<String> = emptySet(),
+    val details: Channel? = null, val detailsLoading: Boolean = false,
     val lockedItem: Channel? = null, val pinError: String? = null, val fullscreen: Boolean = false
 )
 class FormulaViewModel(app: Application) : AndroidViewModel(app) {
@@ -138,6 +139,21 @@ class FormulaViewModel(app: Application) : AndroidViewModel(app) {
         if ((item.locked || categoryLocked(item)) && !unlocked) {
             state.value = state.value.copy(lockedItem = item, pinError = null); return
         }
+        if (item.kind == MediaKind.LIVE || (item.kind == MediaKind.SERIES && !item.isContainer)) play(item)
+        else {
+            state.value = state.value.copy(details = item, detailsLoading = true)
+            val currentEpoch = epoch
+            viewModelScope.launch {
+                val detailed = runCatching { backend.details(item) }.getOrDefault(item)
+                if (currentEpoch == epoch && state.value.details?.id == item.id)
+                    state.value = state.value.copy(details = detailed, detailsLoading = false)
+            }
+        }
+    }
+    fun closeDetails() { state.value = state.value.copy(details = null, detailsLoading = false) }
+    fun watchDetails() {
+        val item = state.value.details ?: return
+        closeDetails()
         if (item.isContainer) openSeries(item) else play(item)
     }
     private fun categoryLocked(item: Channel): Boolean {

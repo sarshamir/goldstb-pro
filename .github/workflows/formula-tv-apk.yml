@@ -4,6 +4,9 @@ on:
     branches: [formula-tv-testing]
     paths: ['FormulaTV/**', '.github/workflows/formula-tv-apk.yml']
   workflow_dispatch:
+concurrency:
+  group: formula-tv-testing
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -19,11 +22,17 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - uses: android-actions/setup-android@v3
       - name: Install Android platform
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Generate local playback fixture
+        run: |
+          mkdir -p FormulaTV/app/src/androidTest/assets
+          ffmpeg -f lavfi -i color=c=0x6D36C4:s=320x180:r=24 -f lavfi -i sine=frequency=440:sample_rate=44100 -t 12 -c:v libx264 -pix_fmt yuv420p -c:a aac -movflags +faststart FormulaTV/app/src/androidTest/assets/test-video.mp4
+          ffmpeg -f lavfi -i color=c=0x174FA0:s=320x180:r=24 -f lavfi -i sine=frequency=880:sample_rate=44100 -t 12 -c:v libx264 -pix_fmt yuv420p -c:a aac -movflags +faststart FormulaTV/app/src/androidTest/assets/test-video2.mp4
       - name: Build and test Formula TV
         working-directory: FormulaTV
-        run: gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+        run: gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug
       - name: Prepare testing APK
         run: cp FormulaTV/app/build/outputs/apk/debug/app-debug.apk FormulaTV-v0.2.0-testing.apk
       - uses: actions/upload-artifact@v4
@@ -45,22 +54,11 @@ jobs:
           target: google_apis
           disable-animations: true
           script: |
-            adb install -r FormulaTV-v0.2.0-testing.apk
             adb logcat -c
-            adb shell am start -n com.formulatv.player/.MainActivity
-            sleep 4
-            adb shell pidof com.formulatv.player
-            adb shell screencap -p /sdcard/phone.png
-            adb pull /sdcard/phone.png phone.png
-            adb shell input keyevent 23
-            sleep 2
-            adb shell screencap -p /sdcard/source.png
-            adb pull /sdcard/source.png source.png
-            adb shell settings put system accelerometer_rotation 0
-            adb shell settings put system user_rotation 1
-            sleep 2
-            adb shell screencap -p /sdcard/landscape.png
-            adb pull /sdcard/landscape.png landscape.png
+            cd FormulaTV
+            gradle --no-daemon :app:connectedDebugAndroidTest
+            cd ..
+            adb pull /sdcard/Android/data/com.formulatv.player/files/screenshots ./screenshots
             adb logcat -d -s AndroidRuntime:E > runtime-errors.txt
             test ! -s runtime-errors.txt || ! grep -q 'FATAL EXCEPTION' runtime-errors.txt
       - uses: actions/upload-artifact@v4
@@ -68,10 +66,9 @@ jobs:
         with:
           name: FormulaTV-smoke-test
           path: |
-            phone.png
-            source.png
-            landscape.png
+            screenshots/
             runtime-errors.txt
             FormulaTV/app/build/reports/tests/testDebugUnitTest/
+            FormulaTV/app/build/reports/androidTests/connected/
             FormulaTV/app/build/reports/lint-results-debug.html
           retention-days: 14

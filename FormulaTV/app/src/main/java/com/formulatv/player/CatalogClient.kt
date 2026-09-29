@@ -37,6 +37,7 @@ class CatalogClient {
         if (source?.type == SourceType.STALKER) stalker.loadGuide(item) else xtream.guide(item)
     suspend fun resolve(item: Channel, pin: String? = null) =
         if (source?.type == SourceType.STALKER) stalker.resolve(item, pin) else xtream.resolve(item)
+    suspend fun details(item: Channel): Channel = if (source?.type == SourceType.STALKER) item else xtream.details(item)
     fun clearCache() { stalker.clearCache(); xtream.clearCache() }
 }
 
@@ -50,7 +51,7 @@ class XtreamClient(private val http: OkHttpClient = OkHttpClient.Builder()
         val raw = input.url.trim().let { if (it.contains("://")) it else "https://$it" }
         val parsed = raw.toHttpUrlOrNull() ?: error("Enter a valid server URL.")
         base = parsed.newBuilder().query(null).fragment(null).build().toString().trimEnd('/')
-            .replace(Regex("(?i)/(player_api|xmltv|panel_api| get)\\.php$"), "")
+            .replace(Regex("(?i)/(player_api|xmltv|panel_api|get)\\.php$"), "")
         require(input.username.isNotBlank() && input.password.isNotBlank()) { "Enter your username and password." }
         val info = apiObject("")
         val user = info.optJSONObject("user_info") ?: error("The server did not return account information.")
@@ -91,7 +92,8 @@ class XtreamClient(private val http: OkHttpClient = OkHttpClient.Builder()
                 item.optString("category_id"), kind, item.optString(if (kind == MediaKind.SERIES) "cover" else "stream_icon"),
                 extension = ext, isContainer = kind == MediaKind.SERIES,
                 locked = item.optInt("is_adult", 0) == 1 || isAdult(name),
-                catchupDays = if (item.optInt("tv_archive", 0) == 1) item.optInt("tv_archive_duration", 1) else 0)
+                catchupDays = if (item.optInt("tv_archive", 0) == 1) item.optInt("tv_archive_duration", 1) else 0,
+                summary = item.optString("plot"), rating = item.optString("rating"), year = item.optString("year"))
         }
     }
     suspend fun episodes(series: Channel): List<Channel> = withContext(Dispatchers.IO) {
@@ -119,6 +121,16 @@ class XtreamClient(private val http: OkHttpClient = OkHttpClient.Builder()
             if (start <= 0 || end <= start) return@let null
             GuideProgram(e.optString("id", "$start"), decodeTitle(e.optString("title")), start, end, channel)
         } }.sortedBy { it.start }
+    }
+    suspend fun details(item: Channel): Channel = withContext(Dispatchers.IO) {
+        if (item.kind == MediaKind.LIVE) return@withContext item
+        val root = apiObject(if (item.isContainer) "get_series_info" else "get_vod_info",
+            mapOf((if (item.isContainer) "series_id" else "vod_id") to item.id))
+        val info = root.optJSONObject("info") ?: return@withContext item
+        item.copy(summary = info.optString("plot", item.summary), rating = info.optString("rating", item.rating),
+            year = info.optString("releasedate", info.optString("releaseDate", item.year)).take(10),
+            duration = info.optString("duration", info.optString("episode_run_time", item.duration)),
+            genre = info.optString("genre", item.genre), poster = info.optString("cover_big", info.optString("cover", item.poster)))
     }
     suspend fun resolve(item: Channel): PlaybackSource = withContext(Dispatchers.IO) {
         val url = if (item.catchupStart > 0) {
