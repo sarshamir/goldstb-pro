@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -32,6 +33,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -140,6 +143,10 @@ class MainActivity : ComponentActivity() {
             if (request.item.kind != MediaKind.LIVE) player.seekTo(vm.position(request.item))
             player.prepare(); player.play()
         }
+    }
+    LaunchedEffect(s.tab, s.fullscreen, s.playback?.sequence) {
+        if (s.playback != null && !s.fullscreen && s.tab != Tab.LIVE && s.tab != Tab.FAVORITES) player.pause()
+        else if (s.playback != null && (s.fullscreen || s.playback.item.kind == MediaKind.LIVE)) player.play()
     }
     DisposableEffect(s.playback?.sequence) {
         if (s.playback != null) activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -447,16 +454,21 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
 }
 @Composable private fun FullPlayer(player: ExoPlayer, s: FormulaState, error: String?, vm: FormulaViewModel, activity: MainActivity) {
     val request = s.playback ?: return
-    var tools by remember(request.sequence) { mutableStateOf(true) }
-    Box(Modifier.fillMaxSize().background(Color.Black).onPreviewKeyEvent { event ->
+    var tools by remember { mutableStateOf(true) }
+    val rootFocus = remember { FocusRequester() }
+    val backFocus = remember { FocusRequester() }
+    LaunchedEffect(tools) { if (!tools && request.item.kind == MediaKind.LIVE) rootFocus.requestFocus() else backFocus.requestFocus() }
+    Box(Modifier.fillMaxSize().background(Color.Black).focusRequester(rootFocus).focusable().onPreviewKeyEvent { event ->
         if (event.type == KeyEventType.KeyUp && (event.key == Key.DirectionCenter || event.key == Key.Enter) && request.item.kind == MediaKind.LIVE) {
             tools = !tools; true
+        } else if (!tools && request.item.kind == MediaKind.LIVE && event.type == KeyEventType.KeyUp && (event.key == Key.DirectionUp || event.key == Key.DirectionDown)) {
+            vm.zap(if (event.key == Key.DirectionDown) 1 else -1); true
         } else false
     }) {
         VideoSurface(player, request.item.kind != MediaKind.LIVE, Modifier.fillMaxSize())
         if (tools) Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .8f), Color.Transparent))).padding(16.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IconAction(Icons.Default.ArrowBack, "Back", { vm.fullscreen(false) })
+            IconAction(Icons.Default.ArrowBack, "Back", { vm.fullscreen(false) }, Modifier.focusRequester(backFocus))
             Text(request.item.name, color = Color.White, fontSize = 18.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             IconAction(Icons.Default.StarBorder, "Favorite", { vm.favorite(request.item) })
             IconAction(Icons.Default.Refresh, "Retry stream", { vm.open(request.item) })

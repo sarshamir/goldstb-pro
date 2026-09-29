@@ -184,7 +184,7 @@ class FormulaViewModel(app: Application) : AndroidViewModel(app) {
                     val history = (listOf(item) + state.value.history).distinctBy(::itemKey).take(20)
                     runCatching { store.saveItems("history:${state.value.active?.id}", history) }
                     state.value = state.value.copy(history = history, playback = PlayRequest(item, source, request), resolving = false,
-                        fullscreen = item.kind != MediaKind.LIVE)
+                        fullscreen = state.value.fullscreen || item.kind != MediaKind.LIVE)
                     if (item.kind == MediaKind.LIVE) loadGuide(item)
                 }
             } catch (error: Exception) {
@@ -210,6 +210,12 @@ class FormulaViewModel(app: Application) : AndroidViewModel(app) {
         val next = (state.value.favoriteItems + item).distinctBy(::itemKey).filter { itemKey(it) in state.value.favorites }
         runCatching { store.saveItems("favorite_items:${state.value.active?.id}", next) }
         state.value = state.value.copy(favoriteItems = next)
+    }
+    fun zap(step: Int) {
+        val list = visibleItems().filter { it.kind == MediaKind.LIVE }
+        if (list.isEmpty()) return
+        val current = list.indexOfFirst { it.id == state.value.playback?.item?.id }.coerceAtLeast(0)
+        open(list[(current + step + list.size) % list.size])
     }
     fun savePosition(item: Channel, position: Long) {
         if (item.kind != MediaKind.LIVE) prefs.edit().putLong("position:${state.value.active?.id}:${itemKey(item)}", position.coerceAtLeast(0)).apply()
