@@ -114,6 +114,14 @@ class PortalClient {
             (0 until array.length()).firstNotNullOfOrNull { index ->
                 array.optJSONObject(index)?.let { firstString(it, "cmd", "command").takeIf(String::isNotBlank) }
             } ?: error("The provider returned no playable file for this episode.")
+        } else if (channel.kind == MediaKind.VOD && channel.command.startsWith("/media/") && !channel.command.contains("file_")) {
+            val files = runCatching { call("type=vod&action=get_ordered_list&movie_id=${encode(channel.id)}&season_id=0&episode_id=0&p=1&JsHttpRequest=1-xml") }.getOrNull()
+            val array = files?.let(::contentArray)
+            array?.let { entries -> (0 until entries.length()).firstNotNullOfOrNull { index ->
+                entries.optJSONObject(index)?.takeIf { it.optBoolean("is_file", false) }?.let {
+                    firstString(it, "cmd", "command").takeIf(String::isNotBlank)
+                }
+            } } ?: channel.command
         } else channel.command
         if (command.startsWith("http://") || command.startsWith("https://")) {
             return@withContext PlaybackSource(command, playbackHeaders())
