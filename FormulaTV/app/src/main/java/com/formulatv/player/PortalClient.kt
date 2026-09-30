@@ -51,6 +51,8 @@ class PortalClient {
     private var endpointUrl = ""
     private var nativeSeries = false
     private val itemCache = ConcurrentHashMap<String, List<Channel>>()
+    private val nextPages = ConcurrentHashMap<String, Int>()
+    private val completedCatalogs = ConcurrentHashMap.newKeySet<String>()
     private val episodeCache = ConcurrentHashMap<String, List<Channel>>()
     private val lockedCategoryIds = ConcurrentHashMap.newKeySet<String>()
 
@@ -60,7 +62,7 @@ class PortalClient {
         connectStalker(progress)
     }
 
-    fun clearCache() { itemCache.clear(); episodeCache.clear(); lockedCategoryIds.clear() }
+    fun clearCache() { itemCache.clear(); nextPages.clear(); completedCatalogs.clear(); episodeCache.clear(); lockedCategoryIds.clear() }
 
     suspend fun loadItems(kind: MediaKind, categoryId: String?): List<Channel> = withContext(Dispatchers.IO) {
         val key = "$kind:${categoryId ?: "*"}"
@@ -106,8 +108,15 @@ class PortalClient {
     }
 
     suspend fun resolve(channel: Channel, parentalCode: String? = null): PlaybackSource = withContext(Dispatchers.IO) {
-        if (channel.command.startsWith("http://") || channel.command.startsWith("https://")) {
-            return@withContext PlaybackSource(channel.command, playbackHeaders())
+        val command = if (channel.portalEpisodeId.isNotBlank()) {
+            val files = call("type=vod&action=get_ordered_list&movie_id=${encode(channel.portalMovieId)}&season_id=${encode(channel.portalSeasonId)}&episode_id=${encode(channel.portalEpisodeId)}&p=1&JsHttpRequest=1-xml")
+            val array = contentArray(files) ?: error("The provider returned no files for this episode.")
+            (0 until array.length()).firstNotNullOfOrNull { index ->
+                array.optJSONObject(index)?.let { firstString(it, "cmd", "command").takeIf(String::isNotBlank) }
+            } ?: error("The provider returned no playable file for this episode.")
+        } else channel.command
+        if (command.startsWith("http://") || command.startsWith("https://")) {
+            return@withContext PlaybackSource(command, playbackHeaders())
         }
         val type = if (channel.kind == MediaKind.LIVE) "itv" else "vod"
         val candidates = if (channel.kind == MediaKind.LIVE) listOf("0") else listOf(channel.series, "1", "0").filter(String::isNotBlank).distinct()
@@ -116,7 +125,7 @@ class PortalClient {
             val result = runCatching {
                 val protection = parentalCode?.takeIf(String::isNotBlank)?.let { "&protect_code=${encode(it)}&pin=${encode(it)}&password=${encode(it)}" }.orEmpty()
                 val archive = if (channel.catchupStart > 0L) "&utc=${channel.catchupStart}&lutc=${channel.catchupStart}" else ""
-                val json = call("type=$type&action=create_link&cmd=${encode(channel.command)}&series=${encode(series)}$archive$protection&forced_storage=undefined&disable_ad=0&download=0&JsHttpRequest=1-xml")
+                val json = call("type=$type&action=create_link&cmd=${encode(command)}&series=${encode(series)}$archive$protection&forced_storage=undefined&disable_ad=0&download=0&JsHttpRequest=1-xml")
                 playbackUrl(json)
                     ?: error("Portal did not return a supported stream URL.")
             }
@@ -166,7 +175,7 @@ class PortalClient {
     }
 
     private fun parseStalkerCategories(root: JSONObject, kind: MediaKind): List<Category> {
-        val array = payloadArray(root) ?: return emptyList()
+        val array = contentArray(root) ?: return emptyList()
         return buildList { for (i in 0 until array.length()) {
             val item = array.optJSONObject(i) ?: continue
             item.optString("id").takeIf(String::isNotBlank)?.let { id ->
@@ -193,36 +202,41 @@ class PortalClient {
         } }
     }
 
+    fun hasMore(kind: MediaKind, categoryId: String?): Boolean =
+        "$kind:${categoryId ?: "*"}" !in completedCatalogs
+
+    suspend fun loadMoreItems(kind: MediaKind, categoryId: String?): List<Channel> = withContext(Dispatchers.IO) {
+        val key = "$kind:${categoryId ?: "*"}"
+        if (key in completedCatalogs) return@withContext itemCache[key].orEmpty()
+        val previous = itemCache[key].orEmpty()
+        val page = loadStalkerItems(kind, categoryId)
+        (previous + page).distinctBy { it.id }.also { itemCache[key] = it }
+    }
+
     private fun loadStalkerItems(kind: MediaKind, categoryId: String?): List<Channel> {
+        val key = "$kind:${categoryId ?: "*"}"
+        val page = nextPages[key] ?: 1
         val requestedCategory = categoryId?.takeIf(String::isNotBlank) ?: "*"
-        val collected = LinkedHashMap<String, Channel>()
-        val pageSignatures = mutableSetOf<String>()
-        var page = 1
-        var rawLoaded = 0
-        var total = Int.MAX_VALUE
-        while (page <= MAX_STALKER_PAGES && rawLoaded < total) {
-            val json = orderedListPage(kind, requestedCategory, page) ?: if (page == 1) {
-                orderedListPage(kind, requestedCategory, 0) ?: break
-            } else {
-                break
-            }
-            val payload = payloadObject(json)
-            val array = contentArray(json) ?: break
-            total = payload?.optInt("total_items", Int.MAX_VALUE)?.takeIf { it > 0 } ?: total
-            if (array.length() == 0) break
-            val signature = buildString { for (i in 0 until array.length()) append(array.optJSONObject(i)?.let(::contentId)).append('|') }
-            if (!pageSignatures.add(signature)) break
-            rawLoaded += array.length()
+        // Return each provider page promptly. Large portals can contain hundreds
+        // of thousands of titles; loading the entire catalog blocks the screen.
+        val json = orderedListPage(kind, requestedCategory, page)
+            ?: if (page == 1) orderedListPage(kind, requestedCategory, 0) else null
+        if (json == null) { completedCatalogs.add(key); return emptyList() }
+        val payload = payloadObject(json)
+        val array = contentArray(json) ?: JSONArray()
+        val total = payload?.optInt("total_items", Int.MAX_VALUE) ?: Int.MAX_VALUE
+        val pageSize = payload?.optInt("max_page_items", array.length())?.coerceAtLeast(1) ?: array.length().coerceAtLeast(1)
+        val items = buildList {
             for (i in 0 until array.length()) {
-                val channel = stalkerVodItem(array.optJSONObject(i) ?: continue, categoryId.orEmpty(), kind == MediaKind.SERIES) ?: continue
-                val wanted = if (kind == MediaKind.SERIES) channel.isContainer else !channel.isContainer
-                if (wanted) collected.putIfAbsent(channel.id, channel)
+                val item = stalkerVodItem(array.optJSONObject(i) ?: continue, categoryId.orEmpty(), kind == MediaKind.SERIES) ?: continue
+                if ((kind == MediaKind.SERIES) == item.isContainer) add(item)
             }
-            val pageSize = payload?.optInt("max_page_items", 0)?.takeIf { it > 0 } ?: array.length()
-            if (array.length() < pageSize) break
-            page++
         }
-        return collected.values.toList()
+        val previousIds = itemCache[key].orEmpty().map { it.id }.toSet()
+        if (array.length() < pageSize || page * pageSize >= total ||
+            (items.isNotEmpty() && items.all { it.id in previousIds })) completedCatalogs.add(key)
+        nextPages[key] = page + 1
+        return items
     }
 
     private fun orderedListPage(kind: MediaKind, category: String, page: Int): JSONObject? {
@@ -262,6 +276,8 @@ class PortalClient {
     }
 
     private fun loadStalkerEpisodes(series: Channel): List<Channel> {
+        val classic = loadClassicEpisodes(series)
+        if (classic.isNotEmpty()) return classic
         val collected = LinkedHashMap<String, Channel>()
         // The series map returned with the selected show is the safest source:
         // it is already scoped to that exact show and avoids portals which
@@ -326,6 +342,47 @@ class PortalClient {
         }
         return fallbackRefs
             .mapIndexed { index, ref -> episodeChannel(series, ref, index, if (fallbackRefs.size > 1) "Season 1" else "") }
+    }
+
+    private fun loadClassicEpisodes(parent: Channel): List<Channel> {
+        fun pages(seasonId: String): List<JSONObject> {
+            val collected = linkedMapOf<String, JSONObject>()
+            var page = 1
+            while (page <= 50) {
+                val root = runCatching { call("type=vod&action=get_ordered_list&movie_id=${encode(parent.id)}&season_id=${encode(seasonId)}&episode_id=0&p=$page&JsHttpRequest=1-xml") }.getOrNull() ?: break
+                val array = contentArray(root) ?: break
+                val before = collected.size
+                for (i in 0 until array.length()) {
+                    val item = array.optJSONObject(i) ?: continue
+                    if (item.optBoolean("is_season", false) || item.optBoolean("is_episode", false))
+                        collected.putIfAbsent(contentId(item), item)
+                }
+                val payload = payloadObject(root)
+                val total = payload?.optInt("total_items", 0) ?: 0
+                val size = payload?.optInt("max_page_items", array.length())?.coerceAtLeast(1) ?: array.length().coerceAtLeast(1)
+                if (collected.size == before || array.length() < size || (total > 0 && collected.size >= total)) break
+                page++
+            }
+            return collected.values.toList()
+        }
+        val result = mutableListOf<Channel>()
+        val seasons = pages("0")
+        for (season in seasons) {
+            if (!season.optBoolean("is_season", false)) continue
+            val seasonId = contentId(season)
+            val label = normalizeSeasonLabel(firstString(season, "season_number", "season_name", "name"))
+            for (episode in pages(seasonId)) {
+                if (!episode.optBoolean("is_episode", false)) continue
+                val id = contentId(episode)
+                val ref = firstString(episode, "series_number", "episode_number", "episode_num").ifBlank { "1" }
+                val command = firstString(episode, "cmd", "command").ifBlank { "/media/file_$id.mpg" }
+                result += Channel("${parent.id}:$seasonId:$id", firstString(episode, "name", "series_name").ifBlank { "Episode $ref" },
+                    command, parent.categoryId, MediaKind.SERIES, parent.poster, ref, parent.extension,
+                    locked = parent.locked || isLocked(episode), season = label, episodeNumber = ref.toIntOrNull() ?: 0,
+                    portalMovieId = parent.id, portalSeasonId = seasonId, portalEpisodeId = id)
+            }
+        }
+        return sortedEpisodes(result)
     }
 
     private fun sortedEpisodes(episodes: Collection<Channel>): List<Channel> = episodes
@@ -670,3 +727,4 @@ class PortalClient {
         val SERIES_CATEGORY_WORDS = listOf("series", "tv show", "shows", "season", "drama", "episodes")
     }
 }
+

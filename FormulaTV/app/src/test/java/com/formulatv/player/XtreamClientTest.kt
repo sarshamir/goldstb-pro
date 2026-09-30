@@ -60,3 +60,4 @@ class XtreamClientTest {
         } finally { server.shutdown() }
     }
 }
+

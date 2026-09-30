@@ -24,7 +24,8 @@ data class FormulaState(
     val playback: PlayRequest? = null, val resolving: Boolean = false, val guide: List<GuideProgram>? = null,
     val favoriteItems: List<Channel> = emptyList(), val history: List<Channel> = emptyList(),
     val favorites: Set<String> = emptySet(), val hidden: Set<String> = emptySet(), val pinned: Set<String> = emptySet(),
-    val details: Channel? = null, val detailsLoading: Boolean = false,
+    val details: Channel? = null, val detailsLoading: Boolean = false, val hasMore: Boolean = false, val loadingMore: Boolean = false,
+    val autoLoad: Boolean = true,
     val lockedItem: Channel? = null, val pinError: String? = null, val fullscreen: Boolean = false
 )
 class FormulaViewModel(app: Application) : AndroidViewModel(app) {
@@ -43,9 +44,9 @@ class FormulaViewModel(app: Application) : AndroidViewModel(app) {
             state.value = state.value.copy(error = "Saved sources could not be unlocked. Add your source again.")
             emptyList()
         }
-        state.value = state.value.copy(sources = sources)
+        state.value = state.value.copy(sources = sources, autoLoad = prefs.getBoolean("auto_load", true))
         val id = prefs.getString("active_source", "")
-        sources.firstOrNull { it.id == id }?.let { connect(it) }
+        if (state.value.autoLoad) (sources.firstOrNull { it.id == id } ?: sources.firstOrNull { it.type == SourceType.STALKER } ?: sources.firstOrNull())?.let { connect(it) }
     }
     fun connect(source: SourceConfig) {
         itemJob?.cancel(); playJob?.cancel(); guideJob?.cancel()
@@ -53,7 +54,7 @@ class FormulaViewModel(app: Application) : AndroidViewModel(app) {
         val client = CatalogClient(); backend = client; unlocked = false
         prefs.edit().putString("active_source", source.id).apply()
         state.value = FormulaState(sources = state.value.sources, active = source, busy = true,
-            loading = "Connecting to ${source.name}…", favorites = storedSet("favorites", source.id),
+            autoLoad = prefs.getBoolean("auto_load", true), loading = "Connecting to ${source.name}…", favorites = storedSet("favorites", source.id),
             hidden = storedSet("hidden", source.id), pinned = storedSet("pinned", source.id),
             favoriteItems = store.loadItems("favorite_items:${source.id}"), history = store.loadItems("history:${source.id}"))
         viewModelScope.launch {
@@ -96,8 +97,11 @@ class FormulaViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun select(tab: Tab) {
         itemJob?.cancel()
-        state.value = state.value.copy(tab = tab, category = null, query = "", episodes = null, items = emptyList(), busy = false, error = null)
-        if (tab == Tab.MOVIES || tab == Tab.SERIES) category(null)
+        state.value = state.value.copy(tab = tab, category = null, query = "", episodes = null, items = emptyList(), busy = false, error = null, loadingMore = false, hasMore = false)
+        if (tab == Tab.MOVIES || tab == Tab.SERIES) {
+            val firstGroup = if (state.value.active?.type == SourceType.STALKER) categories().firstOrNull { it.id != "*" && it.id != "0" }?.id else null
+            category(firstGroup)
+        }
     }
     fun kind() = when (state.value.tab) { Tab.MOVIES -> MediaKind.VOD; Tab.SERIES -> MediaKind.SERIES; else -> MediaKind.LIVE }
     fun categories(): List<Category> {
@@ -106,19 +110,42 @@ class FormulaViewModel(app: Application) : AndroidViewModel(app) {
         return list.filterNot { categoryKey(it) in state.value.hidden }
             .sortedByDescending { categoryKey(it) in state.value.pinned }
     }
-    fun category(id: String?) {
+    fun category(requestedId: String?) {
+        val normalized = requestedId?.takeUnless { it == "*" || it == "0" }
+        val id = if (normalized == null && kind() == MediaKind.SERIES && state.value.active?.type == SourceType.STALKER)
+            categories().firstOrNull { it.id != "*" && it.id != "0" }?.id else normalized
         itemJob?.cancel()
-        state.value = state.value.copy(category = id, episodes = null, query = "", error = null)
+        state.value = state.value.copy(category = id, episodes = null, query = "", error = null, loadingMore = false, hasMore = false)
         if (kind() == MediaKind.LIVE) return
         val currentEpoch = epoch; val kind = kind()
         state.value = state.value.copy(busy = true, loading = if (kind == MediaKind.SERIES) "Loading series…" else "Loading movies…", items = emptyList())
         itemJob = viewModelScope.launch {
             try {
                 val items = backend.items(kind, id)
-                if (currentEpoch == epoch) state.value = state.value.copy(items = items, busy = false)
+                if (currentEpoch == epoch) state.value = state.value.copy(items = items, busy = false, hasMore = backend.hasMore(kind, id))
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 if (currentEpoch == epoch) state.value = state.value.copy(busy = false, error = safeMessage(error))
+            }
+        }
+    }
+    fun autoLoad(enabled: Boolean) {
+        prefs.edit().putBoolean("auto_load", enabled).apply()
+        state.value = state.value.copy(autoLoad = enabled)
+    }
+    fun loadMore() {
+        val s = state.value
+        if (s.loadingMore || !s.hasMore) return
+        val kind = kind(); val currentEpoch = epoch
+        state.value = s.copy(loadingMore = true)
+        itemJob = viewModelScope.launch {
+            try {
+                val items = backend.moreItems(kind, s.category)
+                if (currentEpoch == epoch && state.value.tab == s.tab && state.value.category == s.category)
+                    state.value = state.value.copy(items = items, loadingMore = false, hasMore = backend.hasMore(kind, s.category))
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (currentEpoch == epoch) state.value = state.value.copy(loadingMore = false, error = safeMessage(error))
             }
         }
     }
@@ -265,7 +292,8 @@ class FormulaViewModel(app: Application) : AndroidViewModel(app) {
     companion object {
         fun itemKey(item: Channel) = "${item.kind}:${item.id}"
         fun categoryKey(category: Category) = "${category.kind}:${category.id}"
-        fun newSource(type: SourceType = SourceType.XTREAM) = SourceConfig(UUID.randomUUID().toString(), "", type, "", mac = randomMac())
+        fun newSource(type: SourceType = SourceType.STALKER) = SourceConfig(UUID.randomUUID().toString(), "", type, "", mac = randomMac())
         private fun randomMac(): String { val random = SecureRandom(); return "00:1A:79:" + (1..3).joinToString(":") { "%02X".format(random.nextInt(256)) } }
     }
 }
+

@@ -31,6 +31,8 @@ class CatalogClient {
     }
     suspend fun items(kind: MediaKind, category: String?) =
         if (source?.type == SourceType.STALKER) stalker.loadItems(kind, category) else xtream.items(kind, category)
+    fun hasMore(kind: MediaKind, category: String?) = source?.type == SourceType.STALKER && stalker.hasMore(kind, category)
+    suspend fun moreItems(kind: MediaKind, category: String?) = stalker.loadMoreItems(kind, category)
     suspend fun episodes(item: Channel) =
         if (source?.type == SourceType.STALKER) stalker.loadEpisodes(item) else xtream.episodes(item)
     suspend fun guide(item: Channel) =
@@ -162,3 +164,4 @@ class XtreamClient(private val http: OkHttpClient = OkHttpClient.Builder()
     private fun isAdult(name: String) = Regex("(?i)\\b(adult|xxx|18\\+)\\b").containsMatchIn(name)
     fun clearCache() { cache.clear() }
 }
+

@@ -72,6 +72,7 @@ private val Background = Color(0xFF100C19)
 private val Panel = Color(0xFF1D1729)
 private val PanelLight = Color(0xFF2B203C)
 private val Purple = Color(0xFFAC7AF5)
+private val Red = Color(0xFFFF5266)
 private val Muted = Color(0xFFA99DB9)
 private val Shape = RoundedCornerShape(16.dp)
 
@@ -80,7 +81,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { MaterialTheme(colorScheme = darkColorScheme(primary = Purple, background = Background,
-            surface = Panel, secondary = Color(0xFFD2B7FF))) { FormulaApp(this) } }
+            surface = Panel, secondary = Red, tertiary = Red)) { FormulaApp(this) } }
     }
     fun pictureInPicture() {
         if (Build.VERSION.SDK_INT >= 26 && packageManager.hasSystemFeature("android.software.picture_in_picture")) {
@@ -170,7 +171,7 @@ class MainActivity : ComponentActivity() {
             Header(s, onSource = { sourceDialog = true }, onSearch = { searchDialog = true })
             if (!s.connected) {
                 Landing(s, onAdd = { editing = FormulaViewModel.newSource() }, onConnect = vm::connect,
-                    onEdit = { editing = it }, onDismissError = vm::clearError)
+                    onEdit = { editing = it }, onDismissError = vm::clearError, onAutoLoad = vm::autoLoad)
             } else Row(Modifier.weight(1f)) {
                 if (wide) Navigation(s.tab, true, vm::select)
                 Column(Modifier.weight(1f).fillMaxHeight().padding(horizontal = if (wide) 22.dp else 16.dp)) {
@@ -203,8 +204,8 @@ class MainActivity : ComponentActivity() {
 
 @Composable private fun Header(s: FormulaState, onSource: () -> Unit, onSearch: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(38.dp).clip(RoundedCornerShape(11.dp)).background(Brush.linearGradient(listOf(Color(0xFF8450D1), Color(0xFFC3A2F5)))), contentAlignment = Alignment.Center) {
-            Text("F", fontSize = 25.sp, fontWeight = FontWeight.Black, color = Color.White)
+        Box(Modifier.size(38.dp).clip(RoundedCornerShape(11.dp)).background(Brush.linearGradient(listOf(Color(0xFF8450D1), Red))), contentAlignment = Alignment.Center) {
+            Icon(androidx.compose.ui.res.painterResource(R.drawable.app_logo), "Formula TV", tint = Color.Unspecified, modifier = Modifier.fillMaxSize())
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
@@ -257,8 +258,12 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
         IconAction(Icons.Default.Close, "Dismiss", onClose)
     }
 }
-@Composable private fun Landing(s: FormulaState, onAdd: () -> Unit, onConnect: (SourceConfig) -> Unit, onEdit: (SourceConfig) -> Unit, onDismissError: () -> Unit) {
+@Composable private fun Landing(s: FormulaState, onAdd: () -> Unit, onConnect: (SourceConfig) -> Unit, onEdit: (SourceConfig) -> Unit, onDismissError: () -> Unit, onAutoLoad: (Boolean) -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(Modifier.widthIn(max = 450.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Auto load on launch", color = Color.White, modifier = Modifier.weight(1f))
+            Switch(checked = s.autoLoad, onCheckedChange = onAutoLoad)
+        }
         Spacer(Modifier.height(20.dp))
         Icon(Icons.Default.LiveTv, null, tint = Purple, modifier = Modifier.size(60.dp))
         Spacer(Modifier.height(20.dp))
@@ -276,14 +281,14 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
             }
         }
         Spacer(Modifier.height(25.dp))
-        Text("Formula TV is a player. Add only content you are authorized to access.\nNo channels or subscriptions are included.", color = Muted, fontSize = 11.sp)
+        Text("Please use authorized TV providers only.\nNo channels or subscriptions are included.", color = Muted, fontSize = 11.sp)
     }
 }
 @Composable private fun HomeScreen(s: FormulaState, vm: FormulaViewModel) {
     LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
-            Column(Modifier.fillMaxWidth().clip(Shape).background(Brush.horizontalGradient(listOf(Color(0xFF502580), Color(0xFF261636)))).padding(24.dp)) {
-                Text("READY TO WATCH", color = Color(0xFFD4B9FD), fontSize = 11.sp, letterSpacing = 2.sp)
+            Column(Modifier.fillMaxWidth().clip(Shape).background(Brush.horizontalGradient(listOf(Color(0xFF502580), Color(0xFF482032)))).padding(24.dp)) {
+                Text("READY TO WATCH", color = Red, fontSize = 11.sp, letterSpacing = 2.sp)
                 Spacer(Modifier.height(10.dp)); Text("Welcome to Formula TV", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp)); Text("${s.content?.liveChannels?.size ?: 0} channels · ${s.active?.type?.name?.lowercase()?.replaceFirstChar { it.uppercase() }} connected", color = Color(0xFFDBCEE9), fontSize = 13.sp)
                 Spacer(Modifier.height(18.dp)); Action("Watch Live TV", Icons.Default.PlayArrow, { vm.select(Tab.LIVE) }, selected = true)
@@ -324,7 +329,11 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
         if (s.episodes != null) { IconAction(Icons.Default.ArrowBack, "Back to series", vm::backEpisodes); Spacer(Modifier.width(10.dp)) }
         Column(Modifier.weight(1f)) {
             SectionTitle(title)
-            Text("${visible.size} ${if (s.episodes != null) "episodes" else "items"}" + if (s.query.isNotBlank()) " · ${s.query}" else "", color = Muted, fontSize = 11.sp)
+            Text("${visible.size} ${if (s.episodes != null) "episodes" else "items"}" + (s.category?.let { id -> vm.categories().firstOrNull { it.id == id }?.title?.let { " · $it" } }.orEmpty()) + if (s.query.isNotBlank()) " · ${s.query}" else "", color = Muted, fontSize = 11.sp)
+        }
+        if (s.episodes == null && s.hasMore && (s.tab == Tab.MOVIES || s.tab == Tab.SERIES)) {
+            Action(if (s.loadingMore) "Loading…" else "Load more", Icons.Default.Add, vm::loadMore)
+            Spacer(Modifier.width(8.dp))
         }
         Action("Groups", Icons.Default.FilterList, { groups = true })
     }
@@ -380,7 +389,7 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(item.name, color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (s.playback?.item?.id == item.id) Text("Now playing", color = Purple, fontSize = 10.sp)
+                        if (s.playback?.item?.id == item.id) Text("Now playing", color = Red, fontSize = 10.sp)
                     }
                     if (FormulaViewModel.itemKey(item) in s.favorites) Icon(Icons.Default.Star, "Favorite", tint = Purple, modifier = Modifier.size(17.dp))
                     if (item.locked) Icon(Icons.Default.Lock, "Locked", tint = Muted, modifier = Modifier.size(15.dp))
@@ -489,7 +498,14 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
     var setPin by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionTitle("Settings")
-        Text("CONTENT SOURCES", color = Purple, fontSize = 11.sp, letterSpacing = 2.sp)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Auto load on launch", color = Color.White)
+                Text("Connect to your last saved source when Formula TV opens", color = Muted, fontSize = 11.sp)
+            }
+            Switch(checked = s.autoLoad, onCheckedChange = vm::autoLoad)
+        }
+        Text("CONTENT SOURCES", color = Red, fontSize = 11.sp, letterSpacing = 2.sp)
         Action("Manage sources", Icons.Default.Dns, onSources, Modifier.fillMaxWidth())
         Action("Edit current source", Icons.Default.Edit, onEdit, Modifier.fillMaxWidth())
         Spacer(Modifier.height(6.dp)); Text("PLAYBACK & PRIVACY", color = Purple, fontSize = 11.sp, letterSpacing = 2.sp)
@@ -504,7 +520,7 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
             if (active.type == SourceType.STALKER) Text("MAC: ${active.mac}", color = Muted, fontSize = 12.sp)
         }
         Text("Long press an item to add or remove a favorite. Long press a group to pin or hide it.", color = Muted, fontSize = 12.sp)
-        Text("Formula TV includes no channels or subscriptions. Use only sources you are authorized to access.", color = Muted, fontSize = 11.sp)
+        Text("Please use authorized TV providers only. Formula TV includes no channels or subscriptions.", color = Muted, fontSize = 11.sp)
         Spacer(Modifier.height(20.dp))
     }
     if (setPin) PinDialog(null, onClose = { setPin = false }, onSave = { if (it.matches(Regex("[0-9]{4,8}"))) { vm.savePin(it); setPin = false } }, setup = true)
@@ -540,9 +556,10 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
     AlertDialog(onDismissRequest = onClose, title = { Text(if (source.url.isBlank()) "Add content source" else "Edit content source") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Action("Xtream", onClick = { type = SourceType.XTREAM }, modifier = Modifier.weight(1f), selected = type == SourceType.XTREAM)
                 Action("Stalker", onClick = { type = SourceType.STALKER }, modifier = Modifier.weight(1f), selected = type == SourceType.STALKER)
+                Action("Xtream", onClick = { type = SourceType.XTREAM }, modifier = Modifier.weight(1f), selected = type == SourceType.XTREAM)
             }
+            Text("Please use authorized TV providers only.", color = Red, fontSize = 11.sp)
             EditField("Source name", name, { name = it }, tv)
             EditField(if (type == SourceType.STALKER) "Portal URL" else "Server URL", url, { url = it }, tv, uri = true)
             if (type == SourceType.XTREAM) {
@@ -636,3 +653,4 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
     }, confirmButton = { TextButton(onClick = onWatch) { Text(if (item.isContainer) "View episodes" else "Play movie") } },
         dismissButton = { TextButton(onClick = onClose) { Text("Close") } })
 }
+
