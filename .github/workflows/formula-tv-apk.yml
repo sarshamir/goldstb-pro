@@ -57,11 +57,7 @@ jobs:
           disable-animations: true
           script: |
             adb logcat -c
-            cd FormulaTV
-            gradle --no-daemon :app:connectedDebugAndroidTest
-            cd ..
-            adb pull /sdcard/Android/data/com.formulatv.player/files/screenshots ./screenshots
-            adb logcat -d -s AndroidRuntime:E > runtime-errors.txt
+            bash -c 'status=0; gradle --no-daemon -p FormulaTV :app:connectedDebugAndroidTest || status=$?; adb pull /sdcard/Android/data/com.formulatv.player/files/screenshots ./screenshots || true; adb logcat -d -s AndroidRuntime:E > runtime-errors.txt; exit "$status"'
             test ! -s runtime-errors.txt || ! grep -q 'FATAL EXCEPTION' runtime-errors.txt
       - uses: actions/upload-artifact@v4
         if: always()
