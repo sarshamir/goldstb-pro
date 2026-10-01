@@ -30,9 +30,9 @@ class CatalogClient(private val context: android.content.Context? = null) {
         stalker = PortalClient(); xtream = XtreamClient(); seriesEpisodes.clear()
         return if (config.type == SourceType.STALKER) {
             val prefs = context?.getSharedPreferences("formula_endpoints", 0)
-            val hint = prefs?.getString(config.id, "").orEmpty()
+            val hint = if (prefs?.getString("${config.id}:url", "") == config.url) prefs.getString(config.id, "").orEmpty() else ""
             stalker.connect(PortalConfig(config.url, config.mac, hint)).also {
-                prefs?.edit()?.putString(config.id, stalker.resolvedEndpoint())?.apply()
+                prefs?.edit()?.putString(config.id, stalker.resolvedEndpoint())?.putString("${config.id}:url", config.url)?.apply()
             }
         } else xtream.connect(config)
     }
