@@ -2,7 +2,8 @@ package com.formulatv.player
 
 data class PortalConfig(
     val baseUrl: String,
-    val mac: String = ""
+    val mac: String = "",
+    val endpointHint: String = ""
 )
 enum class MediaKind { LIVE, VOD, SERIES }
 data class Category(val id: String, val title: String, val kind: MediaKind = MediaKind.LIVE, val locked: Boolean = false)

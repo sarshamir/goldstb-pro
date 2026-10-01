@@ -62,6 +62,8 @@ class PortalClient {
         connectStalker(progress)
     }
 
+    fun resolvedEndpoint(): String = endpointUrl
+
     fun clearCache() { itemCache.clear(); nextPages.clear(); completedCatalogs.clear(); episodeCache.clear(); lockedCategoryIds.clear() }
 
     suspend fun loadItems(kind: MediaKind, categoryId: String?): List<Channel> = withContext(Dispatchers.IO) {
@@ -647,6 +649,7 @@ class PortalClient {
         val roots = listOf(primary, alternate(primary), "$origin/stalker_portal", alternate("$origin/stalker_portal"), origin).distinct()
         val candidates = (roots.map { endpoints(it).first() } + roots.flatMap { endpoints(it).drop(1) }).distinct().toMutableList()
         endpointHints[entered]?.let { candidates.add(0, it) }
+        config.endpointHint.takeIf(String::isNotBlank)?.let { candidates.add(0, it) }
         var noToken = false
         var lastError: Throwable? = null
         fun tryEndpoint(candidate: String): JSONObject? {

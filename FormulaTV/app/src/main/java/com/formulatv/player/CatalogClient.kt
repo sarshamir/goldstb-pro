@@ -20,7 +20,7 @@ enum class SourceType { XTREAM, STALKER }
 data class SourceConfig(val id: String, val name: String, val type: SourceType,
     val url: String, val username: String = "", val password: String = "", val mac: String = "")
 
-class CatalogClient {
+class CatalogClient(private val context: android.content.Context? = null) {
     private var source: SourceConfig? = null
     private var stalker = PortalClient()
     private var xtream = XtreamClient()
@@ -28,7 +28,13 @@ class CatalogClient {
     suspend fun connect(config: SourceConfig): PortalContent {
         source = config
         stalker = PortalClient(); xtream = XtreamClient(); seriesEpisodes.clear()
-        return if (config.type == SourceType.STALKER) stalker.connect(PortalConfig(config.url, config.mac)) else xtream.connect(config)
+        return if (config.type == SourceType.STALKER) {
+            val prefs = context?.getSharedPreferences("formula_endpoints", 0)
+            val hint = prefs?.getString(config.id, "").orEmpty()
+            stalker.connect(PortalConfig(config.url, config.mac, hint)).also {
+                prefs?.edit()?.putString(config.id, stalker.resolvedEndpoint())?.apply()
+            }
+        } else xtream.connect(config)
     }
     suspend fun items(kind: MediaKind, category: String?) =
         if (source?.type == SourceType.STALKER) stalker.loadItems(kind, category) else xtream.items(kind, category)

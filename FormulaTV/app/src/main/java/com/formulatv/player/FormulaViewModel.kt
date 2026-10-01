@@ -32,7 +32,7 @@ data class FormulaState(
 class FormulaViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("formula_preferences", 0)
     private val store = SourceStore(app)
-    private var backend = CatalogClient()
+    private var backend = CatalogClient(app)
     private var epoch = 0
     private var itemJob: Job? = null
     private var playJob: Job? = null
@@ -52,7 +52,7 @@ class FormulaViewModel(app: Application) : AndroidViewModel(app) {
     fun connect(source: SourceConfig) {
         itemJob?.cancel(); playJob?.cancel(); guideJob?.cancel()
         val currentEpoch = ++epoch
-        val client = CatalogClient(); backend = client; unlocked = false
+        val client = CatalogClient(getApplication<Application>()); backend = client; unlocked = false
         prefs.edit().putString("active_source", source.id).apply()
         state.value = FormulaState(sources = state.value.sources, active = source, busy = true,
             autoLoad = prefs.getBoolean("auto_load", true), loading = "Connecting to ${source.name}…", favorites = storedSet("favorites", source.id),
