@@ -205,7 +205,7 @@ class MainActivity : ComponentActivity() {
 @Composable private fun Header(s: FormulaState, onSource: () -> Unit, onSearch: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(38.dp).clip(RoundedCornerShape(11.dp)).background(Brush.linearGradient(listOf(Color(0xFF8450D1), Red))), contentAlignment = Alignment.Center) {
-            Icon(androidx.compose.ui.res.painterResource(R.drawable.app_logo), "Formula TV", tint = Color.Unspecified, modifier = Modifier.fillMaxSize())
+            Icon(androidx.compose.ui.res.painterResource(R.drawable.formula_icon), "Formula TV", tint = Color.Unspecified, modifier = Modifier.fillMaxSize())
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
