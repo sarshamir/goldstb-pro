@@ -155,12 +155,14 @@ class PortalClient {
         require(!(blocked == "1" || status.equals("blocked", true) || status.equals("expired", true))) { "This subscription is expired or blocked by the provider." }
         progress(.52f, "Loading categories…")
         val results = coroutineScope {
-            listOf(
-                async { call("type=itv&action=get_genres&JsHttpRequest=1-xml") },
-                async { call("type=itv&action=get_all_channels&JsHttpRequest=1-xml") },
-                async { runCatching { call("type=vod&action=get_categories&JsHttpRequest=1-xml") }.getOrElse { JSONObject() } },
-                async { runCatching { call("type=series&action=get_categories&JsHttpRequest=1-xml") }.getOrElse { JSONObject() } }
-            ).awaitAll()
+            val genres = async { call("type=itv&action=get_genres&JsHttpRequest=1-xml") }
+            val movies = async { runCatching { call("type=vod&action=get_categories&JsHttpRequest=1-xml") }.getOrElse { JSONObject() } }
+            val series = async { runCatching { call("type=series&action=get_categories&JsHttpRequest=1-xml") }.getOrElse { JSONObject() } }
+            // Some Stalker sessions initialize their live catalog in get_genres.
+            // Await that request before fetching channels instead of racing it.
+            val liveGenres = genres.await()
+            val channels = call("type=itv&action=get_all_channels&force_ch_link_check=0&JsHttpRequest=1-xml")
+            listOf(liveGenres, channels, movies.await(), series.await())
         }
         val liveCategories = parseStalkerCategories(results[0], MediaKind.LIVE)
         val vodCategories = parseStalkerCategories(results[2], MediaKind.VOD)

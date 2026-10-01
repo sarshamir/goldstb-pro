@@ -11,6 +11,7 @@ import org.junit.Test
 class PortalClientTest {
     @Test fun handshakeUsesAuthorizedMacAndResolvesProviderCommands() = runBlocking {
         val server = MockWebServer()
+        var genresLoaded = false
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val url = request.requestUrl!!
@@ -21,8 +22,8 @@ class PortalClientTest {
                 val body = when (action) {
                     "handshake" -> """{"js":{"token":"mock-token"}}"""
                     "get_profile" -> """{"js":{"status":"Active","name":"Test account"}}"""
-                    "get_genres" -> """{"js":[{"id":"1","title":"News"}]}"""
-                    "get_all_channels" -> """{"js":{"data":[{"id":"7","name":"News One","tv_genre_id":"1","cmd":"ffrt http://localhost/ch/7","tv_archive":1,"tv_archive_duration":3,"logo":"/logos/news.png"}]}}"""
+                    "get_genres" -> { genresLoaded = true; """{"js":[{"id":"1","title":"News"}]}""" }
+                    "get_all_channels" -> { assertTrue(genresLoaded); assertEquals("0", url.queryParameter("force_ch_link_check")); """{"js":{"data":[{"id":"7","name":"News One","tv_genre_id":"1","cmd":"ffrt http://localhost/ch/7","tv_archive":1,"tv_archive_duration":3,"logo":"/logos/news.png"}]}}""" }
                     "get_short_epg" -> """{"js":{"7":[{"id":"p","name":"Current programme","start_timestamp":${System.currentTimeMillis()/1000-60},"stop_timestamp":${System.currentTimeMillis()/1000+300}}]}}"""
                     "get_categories" -> """{"js":[{"id":"2","title":"Movies"}]}"""
                     "get_ordered_list" -> """{"js":{"total_items":1,"max_page_items":10,"data":[{"id":"11","name":"Test Movie","category_id":"2","cmd":"/media/11.mpg","series":[]}]}}"""
