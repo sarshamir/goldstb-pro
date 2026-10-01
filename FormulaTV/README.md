@@ -1,4 +1,4 @@
-# Formula TV 0.3.0 — testing build
+# Formula TV 0.4.0 — testing build
 
 Original Android TV and phone media player with a purple interface inspired by MYTVOnline+ navigation. This is a separate application (`com.formulatv.player`). It is not affiliated with Formuler or MYTVOnline+.
 
@@ -29,3 +29,5 @@ The source contains a standalone project. Formula TV source is maintained on the
 
 
 Stalker is the default source type. Auto load on launch is enabled by default and is the first option in startup and Settings. VOD loads a provider page at a time with Load more; classic VOD series support season and episode listings. Please use authorized TV providers only.
+
+Version 0.4 probes Stalker API endpoints before forwarding pages, adjusts HTTP/HTTPS, resolves relative artwork, and adds show → season → episode navigation. Classic season/episode rows must match their returned parent IDs. The launcher icon uses Formula TV typography.

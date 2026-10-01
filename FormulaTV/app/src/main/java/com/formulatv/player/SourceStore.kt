@@ -60,7 +60,7 @@ class SourceStore(context: Context) {
         items.forEach { c -> array.put(JSONObject().put("id", c.id).put("name", c.name).put("command", c.command)
             .put("category", c.categoryId).put("kind", c.kind.name).put("poster", c.poster).put("series", c.series)
             .put("extension", c.extension).put("container", c.isContainer).put("locked", c.locked)
-            .put("portal_movie", c.portalMovieId).put("portal_season", c.portalSeasonId).put("portal_episode", c.portalEpisodeId)
+            .put("is_season", c.isSeason).put("portal_movie", c.portalMovieId).put("portal_season", c.portalSeasonId).put("portal_episode", c.portalEpisodeId)
             .put("season", c.season).put("episode", c.episodeNumber).put("catchup", c.catchupDays)) }
         writeEncrypted(name, array.toString())
     }
@@ -70,7 +70,7 @@ class SourceStore(context: Context) {
             Channel(c.getString("id"), c.getString("name"), c.getString("command"), c.getString("category"),
                 MediaKind.valueOf(c.getString("kind")), c.optString("poster"), c.optString("series", "0"),
                 c.optString("extension"), isContainer = c.optBoolean("container"), locked = c.optBoolean("locked"),
-                season = c.optString("season"), episodeNumber = c.optInt("episode"), catchupDays = c.optInt("catchup"), portalMovieId = c.optString("portal_movie"),
+                season = c.optString("season"), episodeNumber = c.optInt("episode"), catchupDays = c.optInt("catchup"), isSeason = c.optBoolean("is_season"), portalMovieId = c.optString("portal_movie"),
                 portalSeasonId = c.optString("portal_season"), portalEpisodeId = c.optString("portal_episode"))
         } }
     }.getOrDefault(emptyList())

@@ -24,7 +24,7 @@ data class Channel(
     val catchupDays: Int = 0,
     val catchupStart: Long = 0L,
     val catchupEnd: Long = 0L,
-    val portalMovieId: String = "", val portalSeasonId: String = "", val portalEpisodeId: String = "",
+    val isSeason: Boolean = false, val portalMovieId: String = "", val portalSeasonId: String = "", val portalEpisodeId: String = "",
     val summary: String = "", val rating: String = "", val year: String = "", val duration: String = "", val genre: String = ""
 )
 data class GuideProgram(val id: String, val title: String, val start: Long, val end: Long, val channel: Channel)

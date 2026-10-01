@@ -20,7 +20,8 @@ data class FormulaState(
     val connected: Boolean = false, val busy: Boolean = false, val loading: String = "",
     val error: String? = null, val tab: Tab = Tab.HOME, val content: PortalContent? = null,
     val category: String? = null, val query: String = "", val items: List<Channel> = emptyList(),
-    val episodes: List<Channel>? = null, val seriesTitle: String = "", val selected: Channel? = null,
+    val episodes: List<Channel>? = null, val seriesTitle: String = "",
+    val seasonItems: List<Channel>? = null, val showTitle: String = "", val episodePage: Boolean = false, val selected: Channel? = null,
     val playback: PlayRequest? = null, val resolving: Boolean = false, val guide: List<GuideProgram>? = null,
     val favoriteItems: List<Channel> = emptyList(), val history: List<Channel> = emptyList(),
     val favorites: Set<String> = emptySet(), val hidden: Set<String> = emptySet(), val pinned: Set<String> = emptySet(),
@@ -97,7 +98,7 @@ class FormulaViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun select(tab: Tab) {
         itemJob?.cancel()
-        state.value = state.value.copy(tab = tab, category = null, query = "", episodes = null, items = emptyList(), busy = false, error = null, loadingMore = false, hasMore = false)
+        state.value = state.value.copy(tab = tab, category = null, query = "", episodes = null, seasonItems = null, episodePage = false, items = emptyList(), busy = false, error = null, loadingMore = false, hasMore = false)
         if (tab == Tab.MOVIES || tab == Tab.SERIES) {
             val firstGroup = if (state.value.active?.type == SourceType.STALKER) categories().firstOrNull { it.id != "*" && it.id != "0" }?.id else null
             category(firstGroup)
@@ -166,7 +167,8 @@ class FormulaViewModel(app: Application) : AndroidViewModel(app) {
         if ((item.locked || categoryLocked(item)) && !unlocked) {
             state.value = state.value.copy(lockedItem = item, pinError = null); return
         }
-        if (item.kind == MediaKind.LIVE || (item.kind == MediaKind.SERIES && !item.isContainer)) play(item)
+        if (item.isSeason) openSeason(item)
+        else if (item.kind == MediaKind.LIVE || (item.kind == MediaKind.SERIES && !item.isContainer)) play(item)
         else {
             state.value = state.value.copy(details = item, detailsLoading = true)
             val currentEpoch = epoch
@@ -189,12 +191,27 @@ class FormulaViewModel(app: Application) : AndroidViewModel(app) {
     }
     private fun openSeries(item: Channel) {
         itemJob?.cancel(); val currentEpoch = epoch
-        state.value = state.value.copy(busy = true, loading = "Loading episodes…", seriesTitle = item.name)
+        state.value = state.value.copy(busy = true, loading = "Loading seasons…", seriesTitle = item.name, showTitle = item.name, episodePage = false)
+        itemJob = viewModelScope.launch {
+            try {
+                val episodes = backend.seasons(item)
+                if (currentEpoch == epoch) state.value = state.value.copy(episodes = episodes, seasonItems = episodes, busy = false,
+                    error = if (episodes.isEmpty()) "This source returned no seasons for this series." else null)
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (currentEpoch == epoch) state.value = state.value.copy(busy = false, error = safeMessage(error))
+            }
+        }
+    }
+    private fun openSeason(item: Channel) {
+        itemJob?.cancel(); val currentEpoch = epoch
+        state.value = state.value.copy(busy = true, loading = "Loading ${item.name}…", episodePage = true,
+            seriesTitle = "${state.value.showTitle} · ${item.name}")
         itemJob = viewModelScope.launch {
             try {
                 val episodes = backend.episodes(item)
                 if (currentEpoch == epoch) state.value = state.value.copy(episodes = episodes, busy = false,
-                    error = if (episodes.isEmpty()) "This source returned no episodes for this series." else null)
+                    error = if (episodes.isEmpty()) "This source returned no episodes for this season." else null)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 if (currentEpoch == epoch) state.value = state.value.copy(busy = false, error = safeMessage(error))
@@ -278,7 +295,12 @@ class FormulaViewModel(app: Application) : AndroidViewModel(app) {
     fun retryPlayback() { state.value.playback?.item?.let(::play) }
     fun clearError() { state.value = state.value.copy(error = null) }
     fun fullscreen(value: Boolean) { state.value = state.value.copy(fullscreen = value) }
-    fun backEpisodes() { state.value = state.value.copy(episodes = null, query = "") }
+    fun backEpisodes() {
+        itemJob?.cancel()
+        val s = state.value
+        state.value = if (s.episodePage) s.copy(episodes = s.seasonItems, episodePage = false, seriesTitle = s.showTitle, query = "", busy = false)
+            else s.copy(episodes = null, seasonItems = null, seriesTitle = "", showTitle = "", query = "", busy = false)
+    }
     fun clearCache() { backend.clearCache(); state.value = state.value.copy(items = emptyList(), episodes = null); if (state.value.tab == Tab.MOVIES || state.value.tab == Tab.SERIES) category(state.value.category) }
     private fun storedSet(name: String, id: String) = prefs.getStringSet("$name:$id", emptySet()).orEmpty().toSet()
     private fun online(): Boolean {

@@ -1,8 +1,1 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-<path android:fillColor="#211431" android:pathData="M0,0H108V108H0Z"/>
-<path android:fillColor="#8D54DF" android:pathData="M24,22H84Q92,22 92,30V76Q92,84 84,84H24Q16,84 16,76V30Q16,22 24,22Z"/>
-<path android:fillColor="#211431" android:pathData="M26,31H82V73H26Z"/>
-<path android:fillColor="#FFFFFF" android:pathData="M45,40L67,52L45,64Z"/>
-<path android:fillColor="#FF5266" android:pathData="M35,80H73V86H35Z"/>
-<path android:fillColor="#FF5266" android:pathData="M82,14A7,7 0,1 1,82,28A7,7 0,1 1,82,14Z"/>
-</vector>
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android" android:src="@drawable/formula_icon" android:gravity="fill" />

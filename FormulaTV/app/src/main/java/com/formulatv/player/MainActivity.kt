@@ -326,10 +326,10 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
     var groupMenu by remember { mutableStateOf<Category?>(null) }
     val title = if (s.episodes != null) s.seriesTitle else tabLabel(s.tab)
     Row(Modifier.fillMaxWidth().padding(bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (s.episodes != null) { IconAction(Icons.Default.ArrowBack, "Back to series", vm::backEpisodes); Spacer(Modifier.width(10.dp)) }
+        if (s.episodes != null) { IconAction(Icons.Default.ArrowBack, if (s.episodePage) "Back to seasons" else "Back to series", vm::backEpisodes); Spacer(Modifier.width(10.dp)) }
         Column(Modifier.weight(1f)) {
             SectionTitle(title)
-            Text("${visible.size} ${if (s.episodes != null) "episodes" else "items"}" + (s.category?.let { id -> vm.categories().firstOrNull { it.id == id }?.title?.let { " · $it" } }.orEmpty()) + if (s.query.isNotBlank()) " · ${s.query}" else "", color = Muted, fontSize = 11.sp)
+            Text("${visible.size} ${if (s.episodes != null) (if (s.episodePage) "episodes" else "seasons") else "items"}" + (s.category?.let { id -> vm.categories().firstOrNull { it.id == id }?.title?.let { " · $it" } }.orEmpty()) + if (s.query.isNotBlank()) " · ${s.query}" else "", color = Muted, fontSize = 11.sp)
         }
         if (s.episodes == null && s.hasMore && (s.tab == Tab.MOVIES || s.tab == Tab.SERIES)) {
             Action(if (s.loadingMore) "Loading…" else "Load more", Icons.Default.Add, vm::loadMore)
@@ -385,7 +385,10 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
             FocusTile({ if (s.playback?.let { it.item.id == item.id && it.item.kind == item.kind } == true) vm.fullscreen(true) else vm.open(item) },
                 Modifier.fillMaxWidth(), s.selected?.id == item.id, onLongClick = { vm.favorite(item) }) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    AsyncImage(model = item.poster, contentDescription = null, modifier = Modifier.size(35.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Fit)
+                    Box(Modifier.size(42.dp).clip(RoundedCornerShape(8.dp)).background(PanelLight), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.LiveTv, item.name, tint = Purple, modifier = Modifier.size(25.dp))
+                        AsyncImage(model = item.poster, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                    }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(item.name, color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -402,7 +405,7 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
     FocusTile(onClick, modifier, onLongClick = onLongClick) {
         Column {
             Box(Modifier.fillMaxWidth().aspectRatio(.72f).background(Brush.verticalGradient(listOf(PanelLight, Color(0xFF352148)))), contentAlignment = Alignment.Center) {
-                Icon(if (item.kind == MediaKind.LIVE) Icons.Default.LiveTv else Icons.Default.Movie, null, tint = Purple.copy(alpha = .5f), modifier = Modifier.size(44.dp))
+                Icon(if (item.isSeason) Icons.Default.VideoLibrary else if (item.kind == MediaKind.LIVE) Icons.Default.LiveTv else if (item.kind == MediaKind.SERIES) Icons.Default.VideoLibrary else Icons.Default.Movie, null, tint = Purple.copy(alpha = .5f), modifier = Modifier.size(44.dp))
                 AsyncImage(model = item.poster, contentDescription = item.name, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 if (favorite) Icon(Icons.Default.Star, "Favorite", tint = Purple, modifier = Modifier.align(Alignment.TopEnd).padding(9.dp).size(20.dp))
                 if (item.locked) Icon(Icons.Default.Lock, "Locked", tint = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(9.dp).size(18.dp))
@@ -650,7 +653,7 @@ private fun tabLabel(tab: Tab) = when(tab) { Tab.HOME -> "Home"; Tab.LIVE -> "Li
             if (item.summary.isNotBlank()) Text(item.summary, color = Color.White, fontSize = 13.sp)
             Action(if (favorite) "Remove favorite" else "Add favorite", Icons.Default.Star, onFavorite, Modifier.fillMaxWidth())
         }
-    }, confirmButton = { TextButton(onClick = onWatch) { Text(if (item.isContainer) "View episodes" else "Play movie") } },
+    }, confirmButton = { TextButton(onClick = onWatch) { Text(if (item.isContainer) "View seasons" else "Play movie") } },
         dismissButton = { TextButton(onClick = onClose) { Text("Close") } })
 }
 

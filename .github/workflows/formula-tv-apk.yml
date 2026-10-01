@@ -36,11 +36,11 @@ jobs:
         working-directory: FormulaTV
         run: gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug
       - name: Prepare testing APK
-        run: cp FormulaTV/app/build/outputs/apk/debug/app-debug.apk FormulaTV-v0.3.0-testing.apk
+        run: cp FormulaTV/app/build/outputs/apk/debug/app-debug.apk FormulaTV-v0.4.0-testing.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: FormulaTV-v0.3.0-testing
-          path: FormulaTV-v0.3.0-testing.apk
+          name: FormulaTV-v0.4.0-testing
+          path: FormulaTV-v0.4.0-testing.apk
           if-no-files-found: error
           retention-days: 14
       - name: Enable KVM

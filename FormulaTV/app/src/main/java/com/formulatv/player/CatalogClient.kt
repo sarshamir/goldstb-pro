@@ -24,23 +24,36 @@ class CatalogClient {
     private var source: SourceConfig? = null
     private var stalker = PortalClient()
     private var xtream = XtreamClient()
+    private val seriesEpisodes = mutableMapOf<String, List<Channel>>()
     suspend fun connect(config: SourceConfig): PortalContent {
         source = config
-        stalker = PortalClient(); xtream = XtreamClient()
+        stalker = PortalClient(); xtream = XtreamClient(); seriesEpisodes.clear()
         return if (config.type == SourceType.STALKER) stalker.connect(PortalConfig(config.url, config.mac)) else xtream.connect(config)
     }
     suspend fun items(kind: MediaKind, category: String?) =
         if (source?.type == SourceType.STALKER) stalker.loadItems(kind, category) else xtream.items(kind, category)
     fun hasMore(kind: MediaKind, category: String?) = source?.type == SourceType.STALKER && stalker.hasMore(kind, category)
     suspend fun moreItems(kind: MediaKind, category: String?) = stalker.loadMoreItems(kind, category)
-    suspend fun episodes(item: Channel) =
-        if (source?.type == SourceType.STALKER) stalker.loadEpisodes(item) else xtream.episodes(item)
+    suspend fun seasons(item: Channel): List<Channel> {
+        if (source?.type == SourceType.STALKER) return stalker.loadSeasons(item)
+        val episodes = xtream.episodes(item).also { seriesEpisodes[item.id] = it }
+        return episodes.groupBy { it.season.ifBlank { "Season 1" } }.keys.map { label ->
+            item.copy(id = "${item.id}:season:$label", name = label, isContainer = true, isSeason = true,
+                season = label, portalMovieId = item.id)
+        }.sortedBy { Regex("\\d+").find(it.season)?.value?.toIntOrNull() ?: Int.MAX_VALUE }
+    }
+    suspend fun episodes(item: Channel): List<Channel> {
+        if (source?.type == SourceType.STALKER) return if (item.isSeason) stalker.loadSeasonEpisodes(item) else stalker.loadEpisodes(item)
+        if (!item.isSeason) return xtream.episodes(item)
+        val episodes = seriesEpisodes[item.portalMovieId] ?: xtream.episodes(item.copy(id = item.portalMovieId, isSeason = false))
+        return episodes.filter { it.season.ifBlank { "Season 1" } == item.season }
+    }
     suspend fun guide(item: Channel) =
         if (source?.type == SourceType.STALKER) stalker.loadGuide(item) else xtream.guide(item)
     suspend fun resolve(item: Channel, pin: String? = null) =
         if (source?.type == SourceType.STALKER) stalker.resolve(item, pin) else xtream.resolve(item)
     suspend fun details(item: Channel): Channel = if (source?.type == SourceType.STALKER) item else xtream.details(item)
-    fun clearCache() { stalker.clearCache(); xtream.clearCache() }
+    fun clearCache() { stalker.clearCache(); xtream.clearCache(); seriesEpisodes.clear() }
 }
 
 class XtreamClient(private val http: OkHttpClient = OkHttpClient.Builder()
@@ -55,7 +68,11 @@ class XtreamClient(private val http: OkHttpClient = OkHttpClient.Builder()
         base = parsed.newBuilder().query(null).fragment(null).build().toString().trimEnd('/')
             .replace(Regex("(?i)/(player_api|xmltv|panel_api|get)\\.php$"), "")
         require(input.username.isNotBlank() && input.password.isNotBlank()) { "Enter your username and password." }
-        val info = apiObject("")
+        val connectClient = http.newBuilder().connectTimeout(4, TimeUnit.SECONDS).callTimeout(9, TimeUnit.SECONDS).build()
+        val info = runCatching { JSONObject(body("", emptyMap(), connectClient)) }.getOrElse {
+            base = if (base.startsWith("https://")) "http://${base.removePrefix("https://")}" else "https://${base.removePrefix("http://") }"
+            JSONObject(body("", emptyMap(), connectClient))
+        }
         val user = info.optJSONObject("user_info") ?: error("The server did not return account information.")
         require(user.optInt("auth", 0) == 1) { "The server rejected this username or password." }
         require(user.optString("status", "Active").equals("Active", true)) { "This subscription is expired or blocked." }
@@ -91,7 +108,7 @@ class XtreamClient(private val http: OkHttpClient = OkHttpClient.Builder()
                 ?: if (kind == MediaKind.LIVE) "ts" else "mp4"
             val name = item.optString("name", "Untitled")
             Channel(id, name, if (kind == MediaKind.SERIES) "" else streamUrl(if (kind == MediaKind.LIVE) "live" else "movie", id, ext),
-                item.optString("category_id"), kind, item.optString(if (kind == MediaKind.SERIES) "cover" else "stream_icon"),
+                item.optString("category_id"), kind, artwork(item.optString(if (kind == MediaKind.SERIES) "cover" else "stream_icon")),
                 extension = ext, isContainer = kind == MediaKind.SERIES,
                 locked = item.optInt("is_adult", 0) == 1 || isAdult(name),
                 catchupDays = if (item.optInt("tv_archive", 0) == 1) item.optInt("tv_archive_duration", 1) else 0,
@@ -143,14 +160,15 @@ class XtreamClient(private val http: OkHttpClient = OkHttpClient.Builder()
         require(url.startsWith("http://") || url.startsWith("https://")) { "The server did not return a playable stream." }
         PlaybackSource(url, mapOf("User-Agent" to "FormulaTV/0.2"))
     }
+    private fun artwork(value: String): String = ("$base/".toHttpUrlOrNull()?.resolve(value.trim()))?.toString().orEmpty().takeIf { value.isNotBlank() }.orEmpty()
     private fun streamUrl(type: String, id: String, ext: String) = "$base/$type/${encode(config.username)}/${encode(config.password)}/$id.$ext"
     private fun encode(value: String) = java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
-    private fun body(action: String, extra: Map<String, String>): String {
+    private fun body(action: String, extra: Map<String, String>, client: OkHttpClient = http): String {
         val url = "$base/player_api.php".toHttpUrl().newBuilder()
             .addQueryParameter("username", config.username).addQueryParameter("password", config.password)
         if (action.isNotBlank()) url.addQueryParameter("action", action)
         extra.forEach { (key, value) -> url.addQueryParameter(key, value) }
-        return http.newCall(Request.Builder().url(url.build()).header("User-Agent", "FormulaTV/0.2").build()).execute().use { response ->
+        return client.newCall(Request.Builder().url(url.build()).header("User-Agent", "FormulaTV/0.2").build()).execute().use { response ->
             require(response.isSuccessful) { "Server returned HTTP ${response.code}." }
             response.body?.string()?.takeIf { it.isNotBlank() } ?: error("The server returned an empty response.")
         }
