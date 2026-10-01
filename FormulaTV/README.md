@@ -31,3 +31,5 @@ The source contains a standalone project. Formula TV source is maintained on the
 Stalker is the default source type. Auto load on launch is enabled by default and is the first option in startup and Settings. VOD loads a provider page at a time with Load more; classic VOD series support season and episode listings. Please use authorized TV providers only.
 
 Version 0.4 probes Stalker API endpoints before forwarding pages, adjusts HTTP/HTTPS, resolves relative artwork, and adds show → season → episode navigation. Classic season/episode rows must match their returned parent IDs. The launcher icon uses Formula TV typography.
+
+Working Stalker endpoints are remembered per saved source address. Editing that address triggers fresh discovery. Portal metadata verification uses the provider IDs to check show and season membership. Channel loading initializes genres before requesting the live catalog.
